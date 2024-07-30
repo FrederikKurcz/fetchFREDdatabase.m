@@ -15,7 +15,7 @@ function[data] = fetchFREDdatabase(excelFileName,obsStart)
 % Inputs:
 % - excelFileName: string of the name of the excel file (include the file
 %   type, e.g. .xlsx)
-% - obsStart: A cell array containing a string of the starting date in the 
+% - obsStart: A cell containing a string of the starting date in the 
 %   format: 'yyyy-MM-dd'. It is possible to supply a different starting date
 %   for each frequency, by supplying a cell array with rows equal to the
 %   number of different frequencies needed. 
@@ -47,7 +47,7 @@ function[data] = fetchFREDdatabase(excelFileName,obsStart)
 % - Convention used for annual data: "occur" on the first day of July.
 %
 % Frederik Kurcz
-% 10.12.2021
+% Last updated: 15.05.2024 ('title' metadata was replaced by 'SeriesID')
 % 
 % Contact: frederik.kurcz@gmail.com
 
@@ -55,6 +55,7 @@ function[data] = fetchFREDdatabase(excelFileName,obsStart)
 
 % possible frequencies:
 frequencies = {'daily','weekly','monthly','quarterly','annual'};
+N = length(frequencies);
 
 % check whether the datafeed toolbox is installed and licensed:
 if ~license('test','Datafeed_Toolbox')
@@ -62,8 +63,18 @@ if ~license('test','Datafeed_Toolbox')
 end
 
 % check for which frequencies data is to be downloaded:
-[~,SHEETS] = xlsfinfo(excelFileName);
-required_freq_index = find(ismember(frequencies,lower(SHEETS)));
+[check,SHEETS] = xlsfinfo(excelFileName);
+
+if isempty(check)
+    error(SHEETS)   % Reading of excel files sometimes yields errors
+end
+
+% find the frequencies to be downloaded, keeping the ordering from the
+% excel file because of the obsStart array:
+required_freq_index = [];
+for s = 1:length(SHEETS) 
+    required_freq_index = [required_freq_index; find(ismember(frequencies,lower(SHEETS{s})))];
+end
 
 % check the excel file is set up correctly:
 if isempty(required_freq_index)
@@ -88,8 +99,8 @@ end
 % for annual data. If I aggregate data and merge with the empty timetable
 % created below, and the empty timetable does not use the 1st. Jan as the 
 % day of the year, the merging of the annual data won't work.
-if any(required_freq_index == length(frequencies))
-    obsStart{end} = [obsStart{end}(1:4),'-01-01'];
+if any(required_freq_index == N)
+    obsStart{required_freq_index==N} = [obsStart{required_freq_index==N}(1:4),'-01-01'];
 end
 
 data_freq = {'days','weeks','months','quarters','years'};  % for caldays,... command
@@ -173,8 +184,8 @@ for freq = frequencies(required_freq_index)
             end
             
             % keep metadata in a separate table
-            data.([freq,'_meta'])(:,strtrim(out.SeriesID)) = table(strtrim([out.Title;...
-                lower(out.Units);out.SeasonalAdjustment;out.Source]),'Rownames', {'Title', 'Units', 'SA', 'Source'});
+            data.([freq,'_meta'])(:,strtrim(out.SeriesID)) = table(strtrim([out.SeriesID;...
+                lower(out.Units);out.SeasonalAdjustment;out.Source]),'Rownames', {'SeriesID', 'Units', 'SA', 'Source'});
             
         catch
             disp(['Something went wrong when downloading series ',SN.(freq){ii},'.'])
@@ -202,6 +213,11 @@ for freq = frequencies(required_freq_index)
     % remove rows with all missing data
     data.(freq) = rmmissing(data.(freq),1,'MinNumMissing',size(data.(freq){:,:},2));
     
+    % impose starting and ending date: 
+    % (careful, with large datasets (especially daily) this can take a long
+    % time; it can simply be commented out)
+    data.(freq) = data.(freq)(datetime(obsStart{strcmpi(freq,frequencies(required_freq_index))}):datetime(obsEnd),:);
+        
 end
 
 % Help function to align weekly data:
